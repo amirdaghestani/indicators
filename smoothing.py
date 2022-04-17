@@ -40,6 +40,3 @@ def ema(data, length, source, ffd):
         ema_column = data.apply(lambda row: calc(row), axis=1)
 
     return ema_column
-
-# class Stoch:
-#     def __init__(self, k, d, n):
