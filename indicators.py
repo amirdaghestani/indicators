@@ -19,26 +19,25 @@ def method(data, length, source, smooth, ffd):
 
     return action[ffd][smooth]
 
-'''
-ma[smooth, ffd]
-'''
+
 def rsi(data, length, source, ma):
     def change(row):
         index = row.name
         value = row[source] - data[source].iloc[index - 1]
         return value
 
-    dump_df = pd.DataFrame(0, index=range(0, data.shape[0]), columns=['up_move', 'down_move'])
+    dump_df = pd.DataFrame(0, index=range(0, data.shape[0]), columns=['up_move', 'down_move', 'up', 'down'])
     dump_df['up_move'] = data.apply(lambda row: max(0, change(row)), axis=1)
     dump_df['down_move'] = data.apply(lambda row: min(0, change(row)), axis=1)
+    dump_df['up'] = method(dump_df, length, 'up_move', ma[0], ma[1])
+    dump_df['down'] = method(dump_df, length, 'down_move', ma[0], ma[1])
 
-    rsi_column = 100 - 100/(1 + abs(method(dump_df, length, 'up_move', ma[0], ma[1])/method(dump_df, length, 'down_move'
-                                                                                            , ma[0], ma[1])))
+    rsi_column = np.where(dump_df['down'] == 0, 100, 100 - 100/(1 + abs(dump_df['up']/dump_df['down'])))
 
     return rsi_column
 
 
-def macd(data, fast_len, slow_len, smooth_len, osc_ma, sig_ma, source):
+def macd(data, fast_len, slow_len, smooth_len, source, osc_ma, sig_ma):
     dump_df = pd.DataFrame(index=range(0, data.shape[0]), columns=['osc_line', 'sig_line'])
     dump_df['osc_line'] = method(data, fast_len, source, osc_ma[0], osc_ma[1]) - \
                           method(data, slow_len, source, osc_ma[0], osc_ma[1])
@@ -47,63 +46,57 @@ def macd(data, fast_len, slow_len, smooth_len, osc_ma, sig_ma, source):
 
     return [dump_df['osc_line'], dump_df['sig_line']]
 
-'''
-ma = [method, ffd]
-'''
 
-
-def cci(data, length, ma):
+def cci(data, osc_len, ma_len, ma):
     def md(row):
         index = row.name + 1
-        subset = abs(dump_df['tp'].iloc[index - length:index] - row['mean_val'])
+        subset = abs(dump_df['tp'].iloc[index - osc_len:index] - row['ma'])
         return subset.mean()
 
-    dump_df = pd.DataFrame(index=range(0, data.shape[0]), columns=['tp', 'mean_val', 'tp_ma', 'md'])
+    dump_df = pd.DataFrame(index=range(0, data.shape[0]), columns=['tp', 'ma', 'md'])
     dump_df['tp'] = (data['High'] + data['Low'] + data['Close'])/3
-    dump_df['mean_val'] = sma(dump_df, length, 'tp')
-    dump_df['tp_ma'] = method(dump_df, length, 'tp', ma[0], ma[1])
+    dump_df['ma'] = method(dump_df, ma_len, 'tp', ma[0], ma[1])
     dump_df['md'] = dump_df.apply(lambda row: md(row), axis=1)
 
-    cci_column = (dump_df['tp'] - dump_df['tp_ma'])/(0.15 * dump_df['md'])
+    cci_column = (dump_df['tp'] - dump_df['ma'])/(0.15 * dump_df['md'])
     return cci_column
 
 
-def stoch(data, fast_k, slow_k, d):
-    def fast_k_calc(row):
+def stoch(data, fast_len, slow_len, d_len):
+    def calc(row):
         index = row.name + 1
-        if index - fast_k >= 0:
-            min_price = min(data['Low'].iloc[index - fast_k:index])
-            max_price = max(data['High'].iloc[index - fast_k:index])
-            max_price = max(data['High'].iloc[index - fast_k:index])
+        if index - fast_len >= 0:
+            min_price = min(data['Low'].iloc[index - fast_len:index])
+            max_price = max(data['High'].iloc[index - fast_len:index])
             value = 100 * (row['Close'] - min_price)/(max_price - min_price)
         else:
             value = np.NAN
         return value
 
     dump_df = pd.DataFrame(index=range(0, data.shape[0]), columns=['fast_k', 'slow_k', 'd'])
-    dump_df['fast_k'] = data.apply(lambda row: fast_k_calc(row), axis=1)
-    dump_df['slow_k'] = sma(dump_df, slow_k, 'fast_k')
-    dump_df['d'] = sma(dump_df, d, 'slow_k')
+    dump_df['fast_k'] = data.apply(lambda row: calc(row), axis=1)
+    dump_df['slow_k'] = sma(dump_df, slow_len, 'fast_k')
+    dump_df['d'] = sma(dump_df, d_len, 'slow_k')
 
     return [dump_df['fast_k'], dump_df['slow_k'], dump_df['d']]
 
 
-def stoch_rsi(data, fast_k, slow_k, d, rsi_method):
-    def fast_k_calc(row):
+def stoch_rsi(data, k_len, d_len, rsi_len, stoch_len, source, rsi_method):
+    def calc(row):
         index = row.name + 1
-        if index - fast_k >= 0:
-            min_rsi = min(dump_df['rsi'].iloc[index - fast_k:index])
-            max_rsi = max(dump_df['rsi'].iloc[index - fast_k:index])
+        if index - stoch_len >= 0:
+            min_rsi = min(dump_df['rsi'].iloc[index - stoch_len:index])
+            max_rsi = max(dump_df['rsi'].iloc[index - stoch_len:index])
             value = 100 * (row['rsi'] - min_rsi)/(max_rsi - min_rsi)
         else:
             value = np.NAN
         return value
 
     dump_df = pd.DataFrame(index=range(0, data.shape[0]), columns=['rsi', 'fast_k', 'slow_k', 'd'])
-    dump_df['rsi'] = rsi(data, fast_k, 'Close', rsi_method)
-    dump_df['fast_k'] = dump_df.apply(lambda row: fast_k_calc(row), axis=1)
-    dump_df['slow_k'] = sma(dump_df, slow_k, 'fast_k')
-    dump_df['d'] = sma(dump_df, d, 'slow_k')
+    dump_df['rsi'] = rsi(data, rsi_len, source, rsi_method)
+    dump_df['fast_k'] = dump_df.apply(lambda row: calc(row), axis=1)
+    dump_df['slow_k'] = sma(dump_df, k_len, 'fast_k')
+    dump_df['d'] = sma(dump_df, d_len, 'slow_k')
 
     return [dump_df['fast_k'], dump_df['slow_k'], dump_df['d']]
 
@@ -114,6 +107,40 @@ def bbp(data, length, source, ma):
     dump_df['bull'] = data['High'] - dump_df['ma']
     dump_df['bear'] = data['Low'] - dump_df['ma']
 
-    bbp_column = dump_df['bull']/dump_df['bear']
+    bbp_column = dump_df['bull'] + dump_df['bear']
     return bbp_column
 
+
+def adx(data, di_len, ma_len, ffd):
+    def tr(row):
+        index = row.name
+        ele1 = abs(row['High'] - row['Low'])
+        ele2 = abs(row['High'] - data['Close'].iloc[index - 1])
+        ele3 = abs(row['Low'] - data['Close'].iloc[index - 1])
+        value = max(ele1, ele2, ele3)
+        return value
+
+    def dh(row):
+        index = row.name
+        value = row['High'] - data['High'].iloc[index - 1]
+        return value
+
+    def dl(row):
+        index = row.name
+        value = data['Low'].iloc[index - 1] - row['Low']
+        return value
+
+    dump_df = pd.DataFrame(index=range(0, data.shape[0]), columns=['tr', 'dh', 'dl', 'pdx', 'ndx', 'spdx', 'sndx'])
+    dump_df['tr'] = data.apply(lambda row: tr(row), axis=1)
+    dump_df['dh'] = data.apply(lambda row: dh(row), axis=1)
+    dump_df['dl'] = data.apply(lambda row: dl(row), axis=1)
+    dump_df['pdx'] = np.where(dump_df['dh'] > dump_df['dl'] and dump_df['dh'] > 0, dump_df['dh'], 0)
+    dump_df['ndx'] = np.where(dump_df['dh'] < dump_df['dl'] and dump_df['dl'] > 0, dump_df['dl'], 0)
+    dump_df['true_range'] = rma(dump_df, di_len, 'tr', ffd)
+    dump_df['pdmi'] = 100 * rma(dump_df, di_len, 'pdx', ffd) / dump_df['true_range']
+    dump_df['ndmi'] = 100 * rma(dump_df, di_len, 'ndx', ffd) / dump_df['true_range']
+    dump_df['dx'] = abs(dump_df['pdmi'] - dump_df['ndmi'])/np.where(dump_df['pdmi'] + dump_df['ndmi'] == 0, 1,
+                                                                    dump_df['pdmi'] + dump_df['ndmi'])
+    adx_column = 100 * rma(dump_df, ma_len, 'dx', ffd)
+
+    return adx_column
