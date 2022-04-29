@@ -103,7 +103,9 @@ def stoch_rsi(data, k_len, d_len, rsi_len, stoch_len, source, rsi_method):
 
 def bbp(data, length, source, ma):
     dump_df = pd.DataFrame(index=range(0, data.shape[0]), columns=['ma', 'bull', 'bear'])
+    print('2')
     dump_df['ma'] = method(data, length, source, ma[0], ma[1])
+    print('3')
     dump_df['bull'] = data['High'] - dump_df['ma']
     dump_df['bear'] = data['Low'] - dump_df['ma']
 
@@ -122,23 +124,46 @@ def adx(data, di_len, ma_len, ffd):
 
     def dh(row):
         index = row.name
-        value = row['High'] - data['High'].iloc[index - 1]
+        if index > 0:
+            value = row['High'] - data['High'].iloc[index - 1]
+        else:
+            value = 0
         return value
 
     def dl(row):
         index = row.name
-        value = data['Low'].iloc[index - 1] - row['Low']
+        if index > 0:
+            value = data['Low'].iloc[index - 1] - row['Low']
+        else:
+            value = 0
         return value
 
-    dump_df = pd.DataFrame(index=range(0, data.shape[0]), columns=['tr', 'dh', 'dl', 'pdx', 'ndx', 'spdx', 'sndx'])
+    def pdx(row):
+        if row['dh'] > row['dl'] and row['dh'] > 0:
+            value = row['dh']
+        else:
+            value = 0
+        return value
+
+    def ndx(row):
+        if row['dh'] < row['dl'] and row['dl'] > 0:
+            value = row['dl']
+        else:
+            value = 0
+        return value
+
+    dump_df = pd.DataFrame(index=range(0, data.shape[0]), columns=['tr', 'dh', 'dl', 'pdx', 'ndx', 'true_range',
+                                                                   'rma-pdx', 'rma-ndx', 'pdmi', 'ndmi', 'dx'])
     dump_df['tr'] = data.apply(lambda row: tr(row), axis=1)
     dump_df['dh'] = data.apply(lambda row: dh(row), axis=1)
     dump_df['dl'] = data.apply(lambda row: dl(row), axis=1)
-    dump_df['pdx'] = np.where(dump_df['dh'] > dump_df['dl'] and dump_df['dh'] > 0, dump_df['dh'], 0)
-    dump_df['ndx'] = np.where(dump_df['dh'] < dump_df['dl'] and dump_df['dl'] > 0, dump_df['dl'], 0)
+    dump_df['pdx'] = dump_df.apply(lambda row: pdx(row), axis=1)
+    dump_df['ndx'] = dump_df.apply(lambda row: ndx(row), axis=1)
     dump_df['true_range'] = rma(dump_df, di_len, 'tr', ffd)
-    dump_df['pdmi'] = 100 * rma(dump_df, di_len, 'pdx', ffd) / dump_df['true_range']
-    dump_df['ndmi'] = 100 * rma(dump_df, di_len, 'ndx', ffd) / dump_df['true_range']
+    dump_df['rma-pdx'] = rma(dump_df, di_len, 'pdx', ffd)
+    dump_df['rma-ndx'] = rma(dump_df, di_len, 'ndx', ffd)
+    dump_df['pdmi'] = 100 * dump_df['rma-pdx'].div(dump_df['true_range'])
+    dump_df['ndmi'] = 100 * dump_df['rma-ndx'].div(dump_df['true_range'])
     dump_df['dx'] = abs(dump_df['pdmi'] - dump_df['ndmi'])/np.where(dump_df['pdmi'] + dump_df['ndmi'] == 0, 1,
                                                                     dump_df['pdmi'] + dump_df['ndmi'])
     adx_column = 100 * rma(dump_df, ma_len, 'dx', ffd)
