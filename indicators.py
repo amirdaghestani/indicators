@@ -68,7 +68,10 @@ def stoch(data, fast_len, slow_len, d_len):
         if index - fast_len >= 0:
             min_price = min(data['Low'].iloc[index - fast_len:index])
             max_price = max(data['High'].iloc[index - fast_len:index])
-            value = 100 * (row['Close'] - min_price)/(max_price - min_price)
+            if max_price == min_price:
+                value = np.NAN
+            else:
+                value = 100 * (row['Close'] - min_price) / (max_price - min_price)
         else:
             value = np.NAN
         return value
@@ -103,9 +106,7 @@ def stoch_rsi(data, k_len, d_len, rsi_len, stoch_len, source, rsi_method):
 
 def bbp(data, length, source, ma):
     dump_df = pd.DataFrame(index=range(0, data.shape[0]), columns=['ma', 'bull', 'bear'])
-    print('2')
     dump_df['ma'] = method(data, length, source, ma[0], ma[1])
-    print('3')
     dump_df['bull'] = data['High'] - dump_df['ma']
     dump_df['bear'] = data['Low'] - dump_df['ma']
 
