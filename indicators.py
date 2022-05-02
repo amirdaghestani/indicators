@@ -23,16 +23,20 @@ def method(data, length, source, smooth, ffd):
 def rsi(data, length, source, ma):
     def change(row):
         index = row.name
-        value = row[source] - data[source].iloc[index - 1]
+        if index > 0:
+            value = row[source] - data[source].iloc[index - 1]
+        else:
+            value = np.NAN
         return value
 
-    dump_df = pd.DataFrame(0, index=range(0, data.shape[0]), columns=['up_move', 'down_move', 'up', 'down'])
-    dump_df['up_move'] = data.apply(lambda row: max(0, change(row)), axis=1)
-    dump_df['down_move'] = data.apply(lambda row: min(0, change(row)), axis=1)
+    dump_df = pd.DataFrame(index=range(0, data.shape[0]), columns=['change', 'up_move', 'down_move', 'up', 'down', 'rsi'])
+    dump_df['change'] = data.apply(lambda row: change(row), axis=1)
+    dump_df['up_move'] = dump_df[~dump_df['change'].isnull()].apply(lambda row: max(0, row['change']), axis=1)
+    dump_df['down_move'] = dump_df[~dump_df['change'].isnull()].apply(lambda row: -min(0, row['change']), axis=1)
     dump_df['up'] = method(dump_df, length, 'up_move', ma[0], ma[1])
     dump_df['down'] = method(dump_df, length, 'down_move', ma[0], ma[1])
 
-    rsi_column = np.where(dump_df['down'] == 0, 100, 100 - 100/(1 + abs(dump_df['up']/dump_df['down'])))
+    rsi_column = np.where(dump_df['down'] == 0, 100, 100 - 100/(1 + dump_df['up']/dump_df['down']))
 
     return rsi_column
 
@@ -42,7 +46,9 @@ def macd(data, fast_len, slow_len, smooth_len, source, osc_ma, sig_ma):
     dump_df['osc_line'] = method(data, fast_len, source, osc_ma[0], osc_ma[1]) - \
                           method(data, slow_len, source, osc_ma[0], osc_ma[1])
 
-    dump_df['sig_line'] = method(dump_df, smooth_len, 'osc_line', sig_ma[0], sig_ma[1])
+    dummy = pd.DataFrame(index=range(0, slow_len-1)).squeeze()
+    values = method(dump_df[slow_len-1:data.shape[0]].reset_index(), smooth_len, 'osc_line', sig_ma[0], sig_ma[1]).squeeze()
+    dump_df['sig_line'] = pd.concat([dummy, values], ignore_index=True)
 
     return [dump_df['osc_line'], dump_df['sig_line']]
 
@@ -58,7 +64,7 @@ def cci(data, osc_len, ma_len, ma):
     dump_df['ma'] = method(dump_df, ma_len, 'tp', ma[0], ma[1])
     dump_df['md'] = dump_df.apply(lambda row: md(row), axis=1)
 
-    cci_column = (dump_df['tp'] - dump_df['ma'])/(0.15 * dump_df['md'])
+    cci_column = (dump_df['tp'] - dump_df['ma'])/(0.015 * dump_df['md'])
     return cci_column
 
 
@@ -90,7 +96,10 @@ def stoch_rsi(data, k_len, d_len, rsi_len, stoch_len, source, rsi_method):
         if index - stoch_len >= 0:
             min_rsi = min(dump_df['rsi'].iloc[index - stoch_len:index])
             max_rsi = max(dump_df['rsi'].iloc[index - stoch_len:index])
-            value = 100 * (row['rsi'] - min_rsi)/(max_rsi - min_rsi)
+            if max_rsi == min_rsi:
+                value = np.NAN
+            else:
+                value = 100 * (row['rsi'] - min_rsi)/(max_rsi - min_rsi)
         else:
             value = np.NAN
         return value
@@ -98,8 +107,14 @@ def stoch_rsi(data, k_len, d_len, rsi_len, stoch_len, source, rsi_method):
     dump_df = pd.DataFrame(index=range(0, data.shape[0]), columns=['rsi', 'fast_k', 'slow_k', 'd'])
     dump_df['rsi'] = rsi(data, rsi_len, source, rsi_method)
     dump_df['fast_k'] = dump_df.apply(lambda row: calc(row), axis=1)
-    dump_df['slow_k'] = sma(dump_df, k_len, 'fast_k')
-    dump_df['d'] = sma(dump_df, d_len, 'slow_k')
+
+    dummy = pd.DataFrame(index=range(0, rsi_len+stoch_len-1))
+    values = sma(dump_df[rsi_len+stoch_len-1:data.shape[0]].reset_index(), k_len, 'fast_k')
+    dump_df['slow_k'] = pd.concat([dummy, values], ignore_index=True)
+
+    dummy = pd.DataFrame(index=range(0, rsi_len+stoch_len+k_len-2))
+    values = sma(dump_df[rsi_len+stoch_len+k_len-2:data.shape[0]].reset_index(), d_len, 'slow_k')
+    dump_df['d'] = pd.concat([dummy, values], ignore_index=True)
 
     return [dump_df['fast_k'], dump_df['slow_k'], dump_df['d']]
 
@@ -167,6 +182,11 @@ def adx(data, di_len, ma_len, ffd):
     dump_df['ndmi'] = 100 * dump_df['rma-ndx'].div(dump_df['true_range'])
     dump_df['dx'] = abs(dump_df['pdmi'] - dump_df['ndmi'])/np.where(dump_df['pdmi'] + dump_df['ndmi'] == 0, 1,
                                                                     dump_df['pdmi'] + dump_df['ndmi'])
-    adx_column = 100 * rma(dump_df, ma_len, 'dx', ffd)
 
+    if ffd:
+        dummy = pd.DataFrame(index=range(0, di_len))
+        adx_values = 100 * rma(dump_df[di_len:data.shape[0]].reset_index(), ma_len, 'dx', ffd)
+        adx_column = pd.concat([dummy, adx_values], ignore_index=True).squeeze()
+    else:
+        adx_column = 100 * rma(dump_df, ma_len, 'dx', ffd)
     return adx_column
